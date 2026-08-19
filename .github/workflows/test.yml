@@ -1,0 +1,46 @@
+name: Test Action
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test-default:
+    name: Test with Default Settings
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Run Free Disk Space (Defaults)
+        uses: ./
+
+  test-minimal:
+    name: Test with All Cleanup Disabled
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Run Free Disk Space (All False)
+        uses: ./
+        with:
+          android: false
+          dotnet: false
+          haskell: false
+          docker-images: false
+          tools-cache: false
+          swap-storage: false
+          apt-aspnetcore: false
+          apt-dotnet: false
+          apt-llvm: false
+          apt-php: false
+          apt-mongodb: false
+          apt-mysql: false
+          apt-azure-chrome-firefox-powershell-mono-mesa: false
+          apt-google-cloud-sdk: false
+          apt-google-cloud-cli: false
+          apt-autoremove: false
+          apt-clean: false

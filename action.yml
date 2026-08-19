@@ -1,0 +1,223 @@
+name: "Free Disk Space (Ubuntu)"
+description: "A GitHub Action to free up valuable disk space on hosted Ubuntu runners."
+branding:
+  icon: "trash-2"
+  color: "blue"
+
+inputs:
+  android:
+    description: "Remove Android SDK and tools"
+    required: false
+    default: "true"
+  dotnet:
+    description: "Remove .NET SDK and tools"
+    required: false
+    default: "true"
+  haskell:
+    description: "Remove Haskell GHC and Cabal"
+    required: false
+    default: "true"
+  docker-images:
+    description: "Prune Docker images"
+    required: false
+    default: "true"
+  tools-cache:
+    description: "Remove the hosted tools cache"
+    required: false
+    default: "false"
+  swap-storage:
+    description: "Disable and remove swap storage"
+    required: false
+    default: "true"
+  apt-aspnetcore:
+    description: "Remove aspnetcore apt packages"
+    required: false
+    default: "true"
+  apt-dotnet:
+    description: "Remove dotnet apt packages"
+    required: false
+    default: "true"
+  apt-llvm:
+    description: "Remove LLVM apt packages"
+    required: false
+    default: "true"
+  apt-php:
+    description: "Remove PHP apt packages"
+    required: false
+    default: "true"
+  apt-mongodb:
+    description: "Remove MongoDB apt packages"
+    required: false
+    default: "true"
+  apt-mysql:
+    description: "Remove MySQL apt packages"
+    required: false
+    default: "true"
+  apt-azure-chrome-firefox-powershell-mono-mesa:
+    description: "Remove Azure CLI, Chrome, Firefox, Powershell, Mono, and Mesa drivers"
+    required: false
+    default: "true"
+  apt-google-cloud-sdk:
+    description: "Remove Google Cloud SDK"
+    required: false
+    default: "true"
+  apt-google-cloud-cli:
+    description: "Remove Google Cloud CLI"
+    required: false
+    default: "true"
+  apt-autoremove:
+    description: "Run apt-get autoremove"
+    required: false
+    default: "true"
+  apt-clean:
+    description: "Run apt-get clean"
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Free Disk Space
+      shell: bash
+      run: |
+        export DEBIAN_FRONTEND=noninteractive
+        echo "=== Disk space BEFORE cleanup ==="
+        df -h
+
+        if [[ "${{ inputs.android }}" == "true" ]]; then
+          echo "Removing Android SDK and tools..."
+          sudo rm -rf /usr/local/lib/android || echo "::warning::Failed to remove Android SDK directory."
+        fi
+
+        if [[ "${{ inputs.dotnet }}" == "true" ]]; then
+          echo "Removing .NET runtime and SDK..."
+          sudo rm -rf /usr/share/dotnet || echo "::warning::Failed to remove .NET SDK directory."
+        fi
+
+        if [[ "${{ inputs.haskell }}" == "true" ]]; then
+          echo "Removing Haskell GHC and Cabal..."
+          sudo rm -rf /opt/ghc /usr/local/.ghcup || echo "::warning::Failed to remove Haskell GHC and Cabal directories."
+        fi
+
+        if [[ "${{ inputs.docker-images }}" == "true" ]]; then
+          echo "Pruning Docker images..."
+          sudo docker image prune --all --force || echo "::warning::Failed to prune Docker images."
+        fi
+
+        if [[ "${{ inputs.tools-cache }}" == "true" ]]; then
+          echo "Removing hosted tools cache..."
+          if [ -n "${AGENT_TOOLSDIRECTORY:-}" ]; then
+            sudo rm -rf "$AGENT_TOOLSDIRECTORY" || echo "::warning::Failed to remove AGENT_TOOLSDIRECTORY."
+          else
+            sudo rm -rf /opt/hostedtoolcache || echo "::warning::Failed to remove hosted tool cache directory."
+          fi
+        fi
+
+        if [[ "${{ inputs.swap-storage }}" == "true" ]]; then
+          echo "Disabling and removing swap storage..."
+          if [ -f /proc/swaps ]; then
+            swaps=$(tail -n +2 /proc/swaps | awk '{print $1}')
+            for swap in $swaps; do
+              echo "Disabling swap: $swap"
+              sudo swapoff "$swap" || echo "::warning::Failed to turn off swap: $swap"
+              if [[ -f "$swap" ]]; then
+                echo "Removing swap file: $swap"
+                sudo rm -f "$swap" || echo "::warning::Failed to remove swap file: $swap"
+              fi
+            done
+          else
+            sudo swapoff -a || echo "::warning::Failed to turn off swap."
+            sudo rm -f /mnt/swapfile || echo "::warning::Failed to remove swapfile."
+          fi
+        fi
+
+        pkgs_to_purge=()
+        patterns_to_purge=()
+
+        if [[ "${{ inputs.apt-aspnetcore }}" == "true" ]]; then
+          patterns_to_purge+=('^aspnetcore-.*')
+        fi
+
+        if [[ "${{ inputs.apt-dotnet }}" == "true" ]]; then
+          patterns_to_purge+=('^dotnet-.*')
+        fi
+
+        if [[ "${{ inputs.apt-llvm }}" == "true" ]]; then
+          patterns_to_purge+=('^llvm-.*')
+        fi
+
+        if [[ "${{ inputs.apt-php }}" == "true" ]]; then
+          patterns_to_purge+=('^php.*')
+        fi
+
+        if [[ "${{ inputs.apt-mongodb }}" == "true" ]]; then
+          patterns_to_purge+=('^mongodb-.*')
+        fi
+
+        if [[ "${{ inputs.apt-mysql }}" == "true" ]]; then
+          patterns_to_purge+=('^mysql-.*')
+        fi
+
+        if [[ "${{ inputs.apt-azure-chrome-firefox-powershell-mono-mesa }}" == "true" ]]; then
+          for pkg in azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri; do
+            if dpkg -s "$pkg" >/dev/null 2>&1; then
+              pkgs_to_purge+=("$pkg")
+            fi
+          done
+        fi
+
+        if [[ "${{ inputs.apt-google-cloud-sdk }}" == "true" ]]; then
+          if dpkg -s google-cloud-sdk >/dev/null 2>&1; then
+            pkgs_to_purge+=("google-cloud-sdk")
+          fi
+        fi
+
+        if [[ "${{ inputs.apt-google-cloud-cli }}" == "true" ]]; then
+          if dpkg -s google-cloud-cli >/dev/null 2>&1; then
+            pkgs_to_purge+=("google-cloud-cli")
+          fi
+        fi
+
+        # Query all installed packages to filter targets and prevent apt-get from aborting on missing/unresolved items
+        installed_pkgs=$(dpkg-query -W -f='${Package}\n' 2>/dev/null || true)
+        to_purge=()
+
+        if [ -n "$installed_pkgs" ]; then
+          # Filter explicit packages
+          for pkg in "${pkgs_to_purge[@]}"; do
+            if echo "$installed_pkgs" | grep -Fqx "$pkg" >/dev/null 2>&1; then
+              to_purge+=("$pkg")
+            fi
+          done
+
+          # Filter patterns to installed matches
+          for pattern in "${patterns_to_purge[@]}"; do
+            matched=$(echo "$installed_pkgs" | grep -E "$pattern" || true)
+            if [ -n "$matched" ]; then
+              while read -r pkg; do
+                if [ -n "$pkg" ]; then
+                  to_purge+=("$pkg")
+                fi
+              done <<< "$matched"
+            fi
+          done
+        else
+          # Fallback to direct targets if dpkg-query is unavailable
+          to_purge=("${pkgs_to_purge[@]}" "${patterns_to_purge[@]}")
+        fi
+
+        if [ ${#to_purge[@]} -gt 0 ]; then
+          echo "Purging requested apt packages..."
+          sudo apt-get purge -y "${to_purge[@]}" || echo "::warning::The command [sudo apt-get purge -y] failed to complete successfully. Proceeding..."
+        fi
+
+        if [[ "${{ inputs.apt-autoremove }}" == "true" ]]; then
+          sudo apt-get autoremove --purge -y || echo "::warning::The command [sudo apt-get autoremove --purge -y] failed to complete successfully. Proceeding..."
+        fi
+
+        if [[ "${{ inputs.apt-clean }}" == "true" ]]; then
+          sudo apt-get clean || echo "::warning::The command [sudo apt-get clean] failed to complete successfully. Proceeding..."
+        fi
+
+        echo "=== Disk space AFTER cleanup ==="
+        df -h
